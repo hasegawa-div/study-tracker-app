@@ -2,9 +2,8 @@ import streamlit as st
 from datetime import date, datetime, timedelta
 import calendar
 import matplotlib.pyplot as plt
+import japanize_matplotlib
 
-
-plt.rcParams["font.family"] = "sans-serif"
 plt.rcParams["axes.unicode_minus"] = False
 st.title("📚 勉強時間管理アプリ")
 
