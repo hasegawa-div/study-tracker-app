@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import date, datetime, timedelta
 import calendar
 import matplotlib.pyplot as plt
+import plotly.express as px
 plt.rcParams["axes.unicode_minus"] = False
 st.title("📚 勉強時間管理アプリ")
 
@@ -154,18 +155,26 @@ for i, (subject, time) in enumerate(ranking, start=1):
 
 # グラフ（棒）
 st.subheader("📊 科目別勉強時間")
-fig1, ax1 = plt.subplots()
-ax1.bar(subjects, minutes)
-ax1.set_xlabel("科目")
-ax1.set_ylabel("分")
-st.pyplot(fig1)
+fig1 = px.bar(
+    x=subjects,
+    y=minutes,
+    labels={
+        "x": "科目",
+        "y": "勉強時間（分）"
+    }
+)
+
+st.plotly_chart(fig1, use_container_width=True)
 
 # グラフ（円）
 st.subheader("🥧 割合")
-fig2, ax2 = plt.subplots()
-ax2.pie(minutes, labels=subjects, autopct="%1.1f%%")
-ax2.set_title("科目ごとの勉強時間割合")
-st.pyplot(fig2)
+fig2 = px.pie(
+    names=subjects,
+    values=minutes,
+    title="科目ごとの勉強時間割合"
+)
+
+st.plotly_chart(fig2, use_container_width=True)
 
 #折れ線グラフ
 st.subheader("📈 1週間の勉強時間推移")
