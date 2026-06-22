@@ -1,3 +1,11 @@
+import os
+
+if not os.path.exists("study_record2.txt"):
+    with open("study_record2.txt", "w", encoding="utf-8"):
+        pass
+
+
+
 import streamlit as st
 from datetime import date, datetime, timedelta
 import calendar
