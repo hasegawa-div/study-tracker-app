@@ -182,16 +182,17 @@ st.subheader("📈 1週間の勉強時間推移")
 days = sorted(daily_totals.keys())
 times = [daily_totals[d] for d in days]
 
-fig3, ax3 = plt.subplots()
+fig3 = px.line(
+    x=days,
+    y=times,
+    markers=True,
+    labels={
+        "x": "日付",
+        "y": "勉強時間（分）"
+    }
+)
 
-ax3.plot(days, times, marker="o")
-
-ax3.set_xlabel("日付")
-ax3.set_ylabel("勉強時間（分）")
-
-plt.xticks(rotation=45)
-
-st.pyplot(fig3)
+st.plotly_chart(fig3, width="stretch")
 
 #月間カレンダー
 st.subheader("📅 勉強カレンダー")
