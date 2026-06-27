@@ -220,6 +220,20 @@ if menu == "ダッシュボード":
         minutes = list(monthly_subjects.values())
 
         fig = px.bar(x=subjects, y=minutes)
+        fig = px.bar(
+            x=subjects,
+            y=minutes,
+            labels={
+                "x": "科目",
+                "y": "勉強時間（分）"
+                },
+                title="今月の科目別勉強時間"
+                )
+        fig.update_layout(
+            xaxis_title="科目",
+            yaxis_title="勉強時間（分）"
+            )
+
         st.plotly_chart(fig, use_container_width=True)
         st.subheader("🔥 学習継続状況")
 
@@ -299,9 +313,8 @@ if menu == "ダッシュボード":
 
             progress = min(studied / goal, 1.0)
     
-        st.write(f"{subject} : {studied}/{goal}分")
-
-        st.progress(progress)
+            st.write(f"{subject} : {studied}/{goal}分")
+            st.progress(progress)
     
 # =====================
 # add
