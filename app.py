@@ -1,9 +1,7 @@
 import streamlit as st
 from datetime import date, datetime, timedelta
 import calendar
-import matplotlib.pyplot as plt
 import plotly.express as px
-plt.rcParams["axes.unicode_minus"] = False
 st.title("📚 勉強時間管理アプリ")
 
 st.subheader("✏️ 勉強記録を追加")
@@ -25,11 +23,13 @@ if st.button("追加"):
 weekly_total = 0
 daily_totals = {}
 study_days = set()
-
+best_streak = 0
 all_totals = {}
 
 
 totals= {}
+monthly_total = 0
+monthly_subjects = {}
 
 # データ読み込み
 try:
@@ -45,6 +45,15 @@ try:
 
             record_date = datetime.strptime(day, "%Y-%m-%d").date()
             study_days.add(record_date)
+            if (
+                 record_date.year == date.today().year
+                 and record_date.month == date.today().month
+            ):
+             monthly_total += int(minutes)
+            if subject not in monthly_subjects:
+              monthly_subjects[subject] = 0
+
+            monthly_subjects[subject] += int(minutes)
 
             # 今週の勉強時間
             if date.today() - timedelta(days=6) <= record_date <= date.today():
@@ -79,15 +88,26 @@ check_day = date.today()
 while check_day in study_days:
     streak += 1
     check_day -= timedelta(days=1)
+best_streak = 0
+
+for start_day in study_days:
+    count = 0
+    current = start_day
+
+    while current in study_days:
+        count += 1
+        current += timedelta(days=1)
+
+    best_streak = max(best_streak, count)  
 if not totals:
     st.warning("この日のデータはありません")
     st.stop()
 
 # 表示用データ
 subjects = list(totals.keys())
-minutes = list(totals.values())
+minutes_data = list(totals.values())
 
-total_time = sum(minutes)
+total_time = sum(minutes_data)
 
 
 st.metric(
@@ -98,9 +118,24 @@ st.metric(
     label="📅 今週の勉強時間",
     value=f"{weekly_total}分"
 )
+st.metric("🗓️ 今月の勉強時間", f"{monthly_total}分")
+if monthly_subjects:
+    best_subject = max(
+        monthly_subjects,
+        key=monthly_subjects.get
+    )
+
+    st.metric(
+        "🏆 今月一番勉強した科目",
+        best_subject
+    )
 st.metric(
     label="🔥 連続勉強日数",
     value=f"{streak}日"
+)
+st.metric(
+    "🏆 最長連続記録",
+    f"{best_streak}日"
 )
 goal = st.number_input("🎯 目標勉強時間（分）",
     min_value=1,
@@ -129,6 +164,35 @@ all_ranking = sorted(
     key=lambda x: x[1],
     reverse=True
 )
+st.subheader("🏅 今月の科目ランキング")
+
+ranking = sorted(
+    monthly_subjects.items(),
+    key=lambda x: x[1],
+    reverse=True
+)
+medals = ["🥇", "🥈", "🥉"]
+
+for i, (subject, minutes) in enumerate(ranking[:3]):
+    st.write(
+        f"{medals[i]} {subject} : {minutes}分"
+    )
+st.subheader("📊 今月の科目別ランキング")
+
+subjects_month = list(monthly_subjects.keys())
+minutes_month = list(monthly_subjects.values())
+
+fig_month = px.bar(
+    x=subjects_month,
+    y=minutes_month,
+    labels={
+        "x": "科目",
+        "y": "勉強時間（分）"
+    },
+    title="今月の科目別勉強時間"
+)
+
+st.plotly_chart(fig_month, width="stretch")
 st.subheader("🗑️ 記録削除")
 records = []
 records.append(line.strip())
@@ -157,7 +221,7 @@ for i, (subject, time) in enumerate(ranking, start=1):
 st.subheader("📊 科目別勉強時間")
 fig1 = px.bar(
     x=subjects,
-    y=minutes,
+    y=minutes_data,
     labels={
         "x": "科目",
         "y": "勉強時間（分）"
@@ -170,7 +234,7 @@ st.plotly_chart(fig1, use_container_width=True)
 st.subheader("🥧 割合")
 fig2 = px.pie(
     names=subjects,
-    values=minutes,
+    values=minutes_data,
     title="科目ごとの勉強時間割合"
 )
 
@@ -225,3 +289,16 @@ for week in cal:
     calendar_text += "\n"
 
 st.code(calendar_text)
+st.subheader("📥 データ管理")
+
+with open("study_record2.txt", "r", encoding="utf-8") as file:
+    csv_data = file.read()
+
+st.download_button(
+    label="📊 CSVをダウンロード",
+    data=csv_data.encode("utf-8-sig"),
+    file_name="study_record.csv",
+    mime="text/csv"
+)
+
+st.caption("ExcelやGoogleスプレッドシートで開けます")

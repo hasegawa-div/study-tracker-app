@@ -4,11 +4,16 @@ from datetime import date, datetime, timedelta
 import plotly.express as px
 import calendar
 import bcrypt
+
 # =====================
 # DB
 # =====================
-conn = sqlite3.connect("study.db", check_same_thread=False)
-c = conn.cursor()
+@st.cache_resource
+def get_cursor():
+    conn = sqlite3.connect("study.db", check_same_thread=False)
+    return conn, conn.cursor()
+
+conn, c = get_cursor()
 
 c.execute("""
 CREATE TABLE IF NOT EXISTS study (
@@ -19,7 +24,7 @@ CREATE TABLE IF NOT EXISTS study (
     username TEXT
 )
 """)
-conn.commit()
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,95 +32,83 @@ CREATE TABLE IF NOT EXISTS users (
     password TEXT
 )
 """)
-conn.commit()
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS goals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT,
     subject TEXT,
-    goal_minutes INTEGER
+    goal_minutes INTEGER,
+    UNIQUE(username, subject)
 )
 """)
+
 conn.commit()
+
 # =====================
 # session
 # =====================
 if "user" not in st.session_state:
     st.session_state.user = None
+
+# =====================
+# auth
+# =====================
 def register_user(username, password):
-
-    hashed = bcrypt.hashpw(
-        password.encode(),
-        bcrypt.gensalt()
-    )
-
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
     try:
         c.execute(
-            "INSERT INTO users (username, password) VALUES (?, ?)",
+            "INSERT INTO users VALUES (NULL, ?, ?)",
             (username, hashed.decode())
         )
-
         conn.commit()
         return True
-
     except:
         return False
+
+
 def login_user(username, password):
-
-    c.execute(
-        "SELECT password FROM users WHERE username=?",
-        (username,)
-    )
-
+    c.execute("SELECT password FROM users WHERE username=?", (username,))
     result = c.fetchone()
 
-    if result is None:
+    if not result:
         return False
 
-    stored_hash = result[0]
-
-    return bcrypt.checkpw(
-        password.encode(),
-        stored_hash.encode()
-    )
+    return bcrypt.checkpw(password.encode(), result[0].encode())
 
 
 # =====================
-# login check
+# login
 # =====================
 if not st.session_state.user:
 
-    st.title("🔐 勉強管理アプリ ログイン")
+    st.title("🔐 ログイン")
 
-    tab1, tab2 = st.tabs(["ログイン", "新規登録"])
+    tab1, tab2 = st.tabs(["ログイン", "登録"])
 
-    # ログイン
     with tab1:
-        username = st.text_input("ユーザー名", key="login_user")
-        password = st.text_input("パスワード", type="password", key="login_pass")
+        u = st.text_input("ユーザー名", key="login_user")
+        p = st.text_input("パスワード", type="password", key="login_pass")
 
         if st.button("ログイン"):
-            user = login_user(username, password)
-
-            if user:
-                st.session_state.user = username
-                st.success("ログイン成功！")
+            if login_user(u, p):
+                st.session_state.user = u
                 st.rerun()
             else:
-                st.error("ユーザー名またはパスワードが違います")
+                st.error("失敗")
 
-    # 新規登録
     with tab2:
-        new_user = st.text_input("新しいユーザー名", key="reg_user")
-        new_pass = st.text_input("パスワード", type="password", key="reg_pass")
+        nu = st.text_input("新規ユーザー", key="reg_user")
+        np = st.text_input("パスワード", type="password", key="reg_pass")
 
         if st.button("登録"):
-            if register_user(new_user, new_pass):
-                st.success("登録成功！ログインしてください")
+            if register_user(nu, np):
+                st.success("OK")
             else:
-                st.error("そのユーザー名は使えません")
+                st.error("NG")
 
     st.stop()
+
 
 # =====================
 # data
@@ -125,58 +118,68 @@ rows = c.execute(
     (st.session_state.user,)
 ).fetchall()
 
-weekly_total = 0
-monthly_total = 0
-monthly_subjects = {}
 study_days = set()
 daily_totals = {}
+monthly_subjects = {}
+weekly_total = 0
+monthly_total = 0
 
 now = date.today()
 
 for day, subject, minutes in rows:
     d = datetime.strptime(day, "%Y-%m-%d").date()
-    minutes = int(minutes)
-
     study_days.add(d)
-    daily_totals[day] = (
-        daily_totals.get(day, 0)
-        + minutes
-    )
+
+    daily_totals[day] = daily_totals.get(day, 0) + minutes
 
     if now - timedelta(days=6) <= d:
         weekly_total += minutes
 
-    if d.year == now.year and d.month == now.month:
+    if d.month == now.month and d.year == now.year:
         monthly_total += minutes
         monthly_subjects[subject] = monthly_subjects.get(subject, 0) + minutes
+
+
+# =====================
+# streak
+# =====================
 streak = 0
 best_streak = 0
 
 if study_days:
-
     sorted_days = sorted(study_days)
-
     current = 1
     best_streak = 1
 
     for i in range(1, len(sorted_days)):
-
-        diff = (sorted_days[i] - sorted_days[i - 1]).days
-
-        if diff == 1:
+        if (sorted_days[i] - sorted_days[i-1]).days == 1:
             current += 1
         else:
             current = 1
-
         best_streak = max(best_streak, current)
 
     today_check = date.today()
-
     while today_check in study_days:
         streak += 1
         today_check -= timedelta(days=1)
+
+
 # =====================
-# sidebar
+# next target
+# =====================
+targets = [7, 14, 30, 100]
+next_target = next((t for t in targets if streak < t), None)
+
+if next_target:
+    remain_days = next_target - streak
+    streak_progress = streak / next_target
+else:
+    remain_days = 0
+    streak_progress = 1.0
+
+
+# =====================
+# menu
 # =====================
 st.sidebar.title("📚 メニュー")
 
@@ -184,156 +187,199 @@ menu = st.sidebar.radio(
     "移動",
     ["ダッシュボード", "記録追加", "ランキング", "記録削除", "記録編集", "目標設定"]
 )
-st.sidebar.divider()
 
-if st.sidebar.button("🚪 ログアウト"):
+st.sidebar.write(st.session_state.user)
+
+if st.sidebar.button("ログアウト"):
     st.session_state.user = None
     st.rerun()
+
+
 # =====================
-# dashboard
+# DASHBOARD
 # =====================
 if menu == "ダッシュボード":
 
     st.title("📊 ダッシュボード")
 
     col1, col2, col3, col4 = st.columns(4)
-
     col1.metric("今週", f"{weekly_total}分")
     col2.metric("今月", f"{monthly_total}分")
     col3.metric("合計", f"{sum(monthly_subjects.values())}分")
-    col4.metric("🔥 連続",f"{streak}日")
-    st.subheader("🎯 試験日カウントダウン")
+    col4.metric("🔥 連続", f"{streak}日")
+    # =====================
+    # 🎯 今日のミッション
+    # =====================
+    mission_exp = 0
+    exp = sum(monthly_subjects.values()) + mission_exp
 
-    exam_date = st.date_input(
-        "試験日",
-        value=date.today()
-    )
+    
+    st.subheader("🎯 今日のミッション")
+    
+    today_minutes = daily_totals.get(date.today().isoformat(), 0)
 
-    days_left = (exam_date - date.today()).days
+    if today_minutes == 0:
+        mission_exp = 0
+        st.info("📚 まずは10分やろう！")
+    elif today_minutes < 60:
+        mission_exp = today_minutes // 10 * 5
+        st.warning(f"🔥 あと {60 - today_minutes} 分で1時間！")
+    else:
+        mission_exp = 50
+        st.success("🎉 いい感じ！")
 
-    st.metric(
-        "試験まで",
-        f"あと {days_left} 日"
-    )
-    if monthly_subjects:
-        subjects = list(monthly_subjects.keys())
-        minutes = list(monthly_subjects.values())
+    
+    
+    # =====================
+    # 🔥 ストリークエリア
+    #=====================
+    st.subheader("🔥 ストリーク")
 
-        fig = px.bar(x=subjects, y=minutes)
-        fig = px.bar(
-            x=subjects,
-            y=minutes,
-            labels={
-                "x": "科目",
-                "y": "勉強時間（分）"
-                },
-                title="今月の科目別勉強時間"
-                )
-        fig.update_layout(
-            xaxis_title="科目",
-            yaxis_title="勉強時間（分）"
-            )
+    st.metric("現在", f"{streak}日連続")
+    st.write(f"🏆 最長 {best_streak}日")
 
-        st.plotly_chart(fig, use_container_width=True)
-        st.subheader("🔥 学習継続状況")
+    # 次の目標
+    targets = [7, 14, 30, 100]
+    next_target = next((t for t in targets if streak < t), None)
 
-        cal = calendar.monthcalendar(now.year, now.month)
+    if next_target:
+        remain_days = next_target - streak
+        streak_progress = streak / next_target
 
-        text = ""
+        st.subheader("🏅 ストリーク目標")
+        st.write(f"次の目標：**{next_target}日連続**")
+        st.write(f"あと **{remain_days}日** で達成！🔥")
+        st.progress(streak_progress)
 
-        for week in cal:
-            for d in week:
-                if d == 0:
-                    text += "⬜ "
-                elif d in {
-                    day.day
-                    for day in study_days
-                    if day.month == now.month
-                    }:
-                    text += "🟩 "
+    else:
+        st.success("🎉 すべてのストリーク目標を達成済み！")
 
-                else:
-                    text += "⬛ "
 
-            text += "\n"
+    # =====================
+    # 🏅 実績バッジ
+    # =====================
+    st.subheader("🏅 実績バッジ")
 
-        st.code(text)
-        st.subheader("🏆 実績")
+    if best_streak >= 7:
+        st.success("🥇 7日連続達成バッジ")
+        st.balloons()
 
-        total_minutes = sum(monthly_subjects.values())
+    if best_streak >= 14:
+        st.success("🥈 14日連続達成バッジ")
 
-        if len(study_days) >= 1:
-            st.success("🥉 初記録達成")
+    if best_streak >= 30:
+        st.success("🥉 30日連続達成バッジ")
 
-        if total_minutes >= 600:
-            st.success("🥈 合計10時間達成")
+    if best_streak >= 100:
+        st.success("👑 100日達成マスター")
 
-        if len(study_days) >= 7:
-            st.success("🥇 7日以上勉強")
 
-        if total_minutes >= 6000:
-            st.success("👑 合計100時間達成")
-        st.subheader("📈 勉強時間推移")
-        days = sorted(daily_totals.keys())
+    # =====================
+    # ⚠️ ストリーク警告
+    # =====================
+    st.subheader("⚠️ ストリーク状況")
 
-        times = [
-            daily_totals[d]
-            for d in days
-            ]
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    two_days_ago = today - timedelta(days=2)
+
+    if today not in study_days:
         
+        if yesterday in study_days:
+            st.warning("⚠️ 今日やらないとストリークが切れます！")
+            
+        elif two_days_ago in study_days:
+            st.error("🚨 危険！明日でストリーク終了")
 
-        if days:
+        else:
+            st.info("📚 今日はまだ勉強していません")
 
-         fig_line = px.line(
-         x=days,
-         y=times,
-         markers=True,
-         labels={
-             "x": "日付",
-             "y": "勉強時間(分)"
-             })
 
-        st.plotly_chart(
-            fig_line,
-            use_container_width=True
-            )
-        st.metric("🏆 最長連続記録",f"{best_streak}日")
-        st.subheader("🎯 目標達成率")
+    # =====================
+    # 🐣 学習キャラ
+    # =====================
+    st.subheader("🐣 学習キャラ")
 
-        goals = c.execute(
-            """SELECT subject, goal_minutes
-            FROM goals
-            WHERE username=?
-            """,
-            (st.session_state.user,)
-        ).fetchall()
+    if best_streak < 3:
+        st.write("🥚 卵（準備中）")
 
-        for subject, goal in goals:
-            studied = monthly_subjects.get(subject, 0)
+    elif best_streak < 7:
+        st.write("🐣 ひよこ")
 
-            progress = min(studied / goal, 1.0)
+    elif best_streak < 14:
+        st.write("🐤 小鳥")
+
+    elif best_streak < 30:
+        st.write("🦉 賢者")
+
+    else:
+        st.write("🐉 伝説ドラゴン🔥")
+
+
+    # =====================
+    # 🎉 達成演出
+    # =====================
+    if best_streak == 7:
+        st.success("🎉 7日達成！")
+        st.balloons()
+
+    elif best_streak == 14:
+        st.success("🔥 14日達成！")
+        st.snow()
+
+    elif best_streak == 30:
+        st.success("🏆 30日達成！")
+        st.balloons()
+
+    elif best_streak == 100:
+        st.success("👑 100日達成！")
+        st.snow()
+
+
+    # 🏅 レベルシステム
+    mission_exp = 0
+    exp = sum(monthly_subjects.values()) + mission_exp
+
+    level = exp // 300 + 1
+    remain = (level * 300) - exp
+    progress = (exp % 300) / 300
+
+    st.subheader("🏅 レベル")
+    st.metric("現在レベル", f"Lv.{level}")
+
+    if level < 5:
+        title = "🥉 Beginner"
+    elif level < 10:
+        title = "🥈 Bronze"
+    elif level < 20:
+        title = "🥇 Silver"
+    elif level < 40:
+        title = "💎 Gold"
+    else:title = "👑 Master"
+
+    st.write(title)
+    st.progress(progress)
+
+    st.write(f"次のレベルまで **あと {remain} 分**")
     
-            st.write(f"{subject} : {studied}/{goal}分")
-            st.progress(progress)
-    
+
 # =====================
-# add
+# ADD
 # =====================
 elif menu == "記録追加":
+    st.title("✏️ 追加")
 
-    st.title("✏️ 記録追加")
-
-    subject = st.text_input("科目")
-    minutes = st.number_input("時間", min_value=1)
+    s = st.text_input("科目")
+    m = st.number_input("分", min_value=1)
 
     if st.button("追加"):
         c.execute(
-            "INSERT INTO study(date, subject, minutes, username) VALUES (?, ?, ?, ?)",
-            (str(date.today()), subject, minutes, st.session_state.user)
+            "INSERT INTO study VALUES (NULL, ?, ?, ?, ?)",
+            (str(date.today()), s, m, st.session_state.user)
         )
         conn.commit()
-        st.success("追加しました")
         st.rerun()
+
 
 # =====================
 # ranking
@@ -342,172 +388,61 @@ elif menu == "ランキング":
 
     st.title("🏆 ランキング")
 
-    ranking = sorted(
-        monthly_subjects.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )
+    ranking = sorted(monthly_subjects.items(), key=lambda x: x[1], reverse=True)
 
-    for i, (s, t) in enumerate(ranking, 1):
-        st.write(f"{i}位 {s}：{t}分")
+    for i, (s, m) in enumerate(ranking, 1):
+        st.write(i, s, m)
+
+
 # =====================
 # delete
 # =====================
 elif menu == "記録削除":
 
-    st.title("🗑️ 記録削除")
+    st.title("🗑️ 削除")
 
     records = c.execute(
-        """
-        SELECT id, date, subject, minutes
-        FROM study
-        WHERE username=?
-        ORDER BY date DESC
-        """,
+        "SELECT id, date, subject, minutes FROM study WHERE username=?",
         (st.session_state.user,)
     ).fetchall()
 
-    if not records:
-        st.info("削除できる記録がありません")
+    options = {f"{d}|{s}|{m}": rid for rid, d, s, m in records}
 
-    else:
+    sel = st.selectbox("削除", list(options.keys()))
 
-        options = {
-            f"{day} | {subject} | {minutes}分": record_id
-            for record_id, day, subject, minutes in records
-        }
+    if st.button("削除"):
+        c.execute("DELETE FROM study WHERE id=?", (options[sel],))
+        conn.commit()
+        st.rerun()
 
-        selected = st.selectbox(
-            "削除する記録を選択",
-            list(options.keys())
-        )
 
-        if st.checkbox("本当に削除する", key="confirm_delete"):
-
-            if st.button("🗑️ 削除"):
-
-                c.execute(
-                    "DELETE FROM study WHERE id=?",
-                    (options[selected],)
-                )
-
-                conn.commit()
-
-                st.success("削除しました")
-                st.rerun()
 # =====================
-# compile
+# edit
 # =====================
 elif menu == "記録編集":
 
-    st.title("✏️ 記録編集")
+    st.title("✏️ 編集")
+    st.info("簡略版（必要なら拡張できる）")
 
-    records = c.execute(
-        """
-        SELECT id, date, subject, minutes
-        FROM study
-        WHERE username=?
-        ORDER BY date DESC
-        """,
-        (st.session_state.user,)
-    ).fetchall()
 
-    if not records:
-        st.info("編集できる記録がありません")
-
-    else:
-
-        options = {
-            f"{day} | {subject} | {minutes}分": record_id
-            for record_id, day, subject, minutes in records
-        }
-
-        selected = st.selectbox(
-            "編集する記録",
-            list(options.keys())
-        )
-
-        record_id = options[selected]
-
-        current = next(
-            r for r in records if r[0] == record_id
-        )
-
-        new_subject = st.text_input(
-            "科目",
-            value=current[2]
-        )
-
-        new_minutes = st.number_input(
-            "時間",
-            min_value=1,
-            value=current[3]
-        )
-
-        if st.button("💾 保存"):
-
-            c.execute(
-                """
-                UPDATE study
-                SET subject=?,
-                    minutes=?
-                WHERE id=?
-                """,
-                (
-                    new_subject,
-                    new_minutes,
-                    record_id
-                )
-            )
-
-            conn.commit()
-
-            st.success("更新しました")
-            st.rerun()
 # =====================
-# target setting
+# goal
 # =====================
 elif menu == "目標設定":
 
-    st.title("🎯 目標設定")
+    st.title("🎯 目標")
 
     subject = st.text_input("科目")
-    goal = st.number_input(
-        "目標勉強時間（分）",
-        min_value=1,
-        value=1000
-    )
+    goal = st.number_input("分", min_value=1)
 
     if st.button("保存"):
-
-        c.execute(
-            """
-            INSERT INTO goals
-            (username, subject, goal_minutes)
+         c.execute("""
+            INSERT INTO goals (username, subject, goal_minutes)
             VALUES (?, ?, ?)
-            """,
-            (
-                st.session_state.user,
-                subject,
-                goal
-            )
-        )
-
-        conn.commit()
-
-        st.success("目標を保存しました")
-
-    # ← if の外に出す
-    goals = c.execute(
-        """
-        SELECT subject, goal_minutes
-        FROM goals
-        WHERE username=?
-        """,
-        (st.session_state.user,)
-    ).fetchall()
-
-    st.subheader("現在の目標")
-
-    for subject, goal in goals:
-        st.write(f"{subject} : {goal}分")
+            ON CONFLICT(username, subject)
+            DO UPDATE SET goal_minutes=excluded.goal_minutes
+         """, (st.session_state.user, subject, goal))
+         
+         
+         conn.commit()
+         st.success("OK")
